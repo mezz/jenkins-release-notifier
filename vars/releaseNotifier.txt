@@ -1,0 +1,19 @@
+Schedules the release-notifier worker with data for one published release.
+
+Required parameters:
+
+- repository: GitHub owner/name
+- channel: name that separates one release sequence from another
+- projectName: project name used in comments
+- version: the published version
+- baseCommit and headCommit: full 40-character IDs for the published range
+- releaseLinks: list of maps with label and absolute HTTP(S) url
+
+Optional parameters are workerJob (default release-notifier-worker),
+message, minecraftVersions, modLoaders, and enhancementLabels. A custom message
+is used for every target and its release links are appended automatically. If
+message is omitted, the notifier uses its default PR/issue wording.
+
+The step passes string and text parameters to a Pipeline job. It does not read
+the GitHub credential or call GitHub. It can be loaded from an SCM tag without
+adding an entry under Global Pipeline Libraries.
