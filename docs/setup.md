@@ -1,4 +1,4 @@
-# Set up Jenkins Release Notifier 0.1.0
+# Set up Jenkins Release Notifier 0.1.1
 
 No global Jenkins library or administrator configuration is required. Create
 one worker job, then configure each project from its Jenkinsfile.
@@ -14,7 +14,7 @@ Create a GitHub token with these repository permissions:
 Save it in Jenkins as a **Secret text** credential with the ID:
 
 ```text
-github-release-notifier-token
+github-release-comment-token
 ```
 
 Create a **Pipeline** job named `release-notifier-worker`. Select
@@ -24,7 +24,7 @@ Create a **Pipeline** job named `release-notifier-worker`. Select
 | --- | --- |
 | SCM | Git |
 | Repository URL | `https://github.com/mezz/jenkins-release-notifier.git` |
-| Branch Specifier | `refs/tags/v0.1.0` |
+| Branch Specifier | `refs/tags/v0.1.1` |
 | Script Path | `Jenkinsfile` |
 
 Run the job once to initialize it. The selected agent must have Python 3.11 or
@@ -39,7 +39,7 @@ stage('Notify Released Issues') {
     steps {
         script {
             library(
-                identifier: 'jenkins-release-notifier@v0.1.0',
+                identifier: 'jenkins-release-notifier@v0.1.1',
                 retriever: modernSCM([
                     $class: 'GitSCMSource',
                     remote: 'https://github.com/mezz/jenkins-release-notifier.git'

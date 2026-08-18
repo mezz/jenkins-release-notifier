@@ -102,7 +102,7 @@ pipeline {
         }
         stage('Post Notifications') {
             environment {
-                GITHUB_RELEASE_NOTIFIER_TOKEN = credentials('github-release-notifier-token')
+                GITHUB_RELEASE_NOTIFIER_TOKEN = credentials('github-release-comment-token')
             }
             steps {
                 script {
