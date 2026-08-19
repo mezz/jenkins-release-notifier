@@ -37,5 +37,17 @@ class AmbiguousWriteError(GitHubError):
     """A comment may have been created even though its response was lost."""
 
 
+class DiscordError(NotifierError):
+    """A Discord webhook operation failed."""
+
+
+class TransientDiscordError(DiscordError):
+    """Discord temporarily rejected or could not confirm a webhook request."""
+
+
+class PermanentDiscordError(DiscordError):
+    """Discord rejected a webhook request that must change before retrying."""
+
+
 class RangeError(NotifierError):
     """The requested release range is unavailable or invalid."""

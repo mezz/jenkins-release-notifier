@@ -4,7 +4,24 @@ from collections import defaultdict
 from typing import Callable
 
 from release_notifier.github import ComparedRange, CompareCommit, Issue, PullRequest
-from release_notifier.model import ReleaseRequest
+from release_notifier.model import DiscordNotification, ReleaseRequest
+
+
+def discord_notification(
+    title: str = "mezz/Example/main #42",
+    *,
+    result: str = "SUCCESS",
+) -> DiscordNotification:
+    return DiscordNotification.from_dict(
+        {
+            "schemaVersion": 1,
+            "title": title,
+            "description": "**Result:** SUCCESS\n**Build:** #42",
+            "footer": "Example Jenkins",
+            "link": "https://ci.example.invalid/job/42/",
+            "result": result,
+        }
+    )
 
 
 def request(

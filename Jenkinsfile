@@ -53,6 +53,11 @@ pipeline {
         text(name: 'RELEASE_MOD_LOADERS', defaultValue: '', description: 'Optional; one mod loader per line')
         string(name: 'RELEASE_ENHANCEMENT_LABELS_PRESENT', defaultValue: 'false', description: 'Whether enhancement labels were explicitly supplied')
         text(name: 'RELEASE_ENHANCEMENT_LABELS', defaultValue: '', description: 'Optional; one feature-request label per line')
+        string(name: 'DISCORD_TITLE', defaultValue: '', description: 'Discord embed title; empty for no new Discord notification')
+        text(name: 'DISCORD_DESCRIPTION', defaultValue: '', description: 'Discord embed description')
+        string(name: 'DISCORD_FOOTER', defaultValue: '', description: 'Discord embed footer')
+        string(name: 'DISCORD_LINK', defaultValue: '', description: 'Jenkins build URL')
+        string(name: 'DISCORD_RESULT', defaultValue: '', description: 'Jenkins build result')
     }
 
     stages {
@@ -100,24 +105,85 @@ pipeline {
                 }
             }
         }
-        stage('Post Notifications') {
-            environment {
-                GITHUB_RELEASE_NOTIFIER_TOKEN = credentials('github-release-comment-token')
+        stage('Queue Discord') {
+            when {
+                expression { params.DISCORD_TITLE?.trim() }
             }
             steps {
                 script {
+                    sh '''
+                        PYTHONPATH=src python3 -m release_notifier submit-discord-parameters \
+                          --state-file "$NOTIFIER_STATE_FILE"
+                    '''
+                    persistNotifierState(env.NOTIFIER_STATE_FILE)
+                }
+            }
+        }
+        stage('Post Notifications') {
+            steps {
+                script {
+                    def deliveryFailed = false
                     try {
-                        sh '''
-                            PYTHONPATH=src python3 -m release_notifier process \
-                              --state-file "$NOTIFIER_STATE_FILE" \
-                              --token-env GITHUB_RELEASE_NOTIFIER_TOKEN
-                        '''
+                        def githubPending = sh(
+                            script: '''
+                                PYTHONPATH=src python3 -m release_notifier has-pending \
+                                  --state-file "$NOTIFIER_STATE_FILE" \
+                                  --delivery github
+                            ''',
+                            returnStatus: true
+                        ) == 0
+                        if (githubPending) {
+                            withCredentials([string(
+                                credentialsId: 'github-release-comment-token',
+                                variable: 'GITHUB_RELEASE_NOTIFIER_TOKEN'
+                            )]) {
+                                deliveryFailed |= sh(
+                                    script: '''
+                                        PYTHONPATH=src python3 -m release_notifier process \
+                                          --state-file "$NOTIFIER_STATE_FILE" \
+                                          --delivery github \
+                                          --token-env GITHUB_RELEASE_NOTIFIER_TOKEN
+                                    ''',
+                                    returnStatus: true
+                                ) != 0
+                            }
+                            persistNotifierState(env.NOTIFIER_STATE_FILE)
+                        }
+
+                        def discordPending = sh(
+                            script: '''
+                                PYTHONPATH=src python3 -m release_notifier has-pending \
+                                  --state-file "$NOTIFIER_STATE_FILE" \
+                                  --delivery discord
+                            ''',
+                            returnStatus: true
+                        ) == 0
+                        if (discordPending) {
+                            withCredentials([string(
+                                credentialsId: 'discord-webhook-url',
+                                variable: 'DISCORD_WEBHOOK_URL'
+                            )]) {
+                                deliveryFailed |= sh(
+                                    script: '''
+                                        PYTHONPATH=src python3 -m release_notifier process \
+                                          --state-file "$NOTIFIER_STATE_FILE" \
+                                          --delivery discord \
+                                          --discord-webhook-env DISCORD_WEBHOOK_URL
+                                    ''',
+                                    returnStatus: true
+                                ) != 0
+                            }
+                            persistNotifierState(env.NOTIFIER_STATE_FILE)
+                        }
                     } finally {
                         persistNotifierState(env.NOTIFIER_STATE_FILE)
                         sh '''
                             PYTHONPATH=src python3 -m release_notifier inspect \
                               --state-file "$NOTIFIER_STATE_FILE"
                         '''
+                    }
+                    if (deliveryFailed) {
+                        error('One or more notifications remain queued for retry')
                     }
                 }
             }

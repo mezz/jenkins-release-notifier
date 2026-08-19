@@ -13,7 +13,7 @@ from release_notifier.errors import QueueConflictError, StoreError, UnsupportedS
 from release_notifier.model import CommentTarget
 from release_notifier.store import DESCRIPTION_PREFIX, StateStore
 
-from tests.support import request
+from tests.support import discord_notification, request
 
 
 class StateStoreTest(unittest.TestCase):
@@ -114,6 +114,38 @@ class StateStoreTest(unittest.TestCase):
         self.assertEqual(1, value["schemaVersion"])
         self.assertEqual(release.version, value["channels"][0]["requests"][0]["request"]["version"])
         self.assertNotIn("worker-super-secret-token", self.state_file.read_text(encoding="utf-8"))
+
+    def test_discord_queue_survives_restore_and_deduplicates_delivery(self) -> None:
+        notification = discord_notification()
+        self.assertTrue(self.store.enqueue_discord(notification))
+        self.assertFalse(self.store.enqueue_discord(notification))
+        self.store.fail_discord(notification, "Discord unavailable\ntry later")
+
+        description = self.store.describe()
+        restored_path = Path(self.temporary_directory.name) / "discord-restored.json"
+        restored = StateStore.restore_description(restored_path, description)
+
+        self.assertEqual(notification, restored.next_discord())
+        self.assertEqual(
+            "Discord unavailable try later",
+            restored.inspect_discord()[0]["lastError"],
+        )
+        restored.complete_discord(notification)
+        self.assertIsNone(restored.next_discord())
+        self.assertFalse(restored.enqueue_discord(notification))
+
+    def test_old_state_without_discord_fields_is_upgraded_on_save(self) -> None:
+        self.state_file.write_text(
+            json.dumps({"schemaVersion": 1, "channels": []}),
+            encoding="utf-8",
+        )
+
+        upgraded = StateStore(self.state_file)
+        upgraded.enqueue_discord(discord_notification())
+        value = json.loads(self.state_file.read_text(encoding="utf-8"))
+
+        self.assertEqual(1, len(value["discordNotifications"]))
+        self.assertEqual([], value["discordDeliveredKeys"])
 
     def test_build_description_restores_pending_work(self) -> None:
         first = request("1.0.0", "a" * 40, "b" * 40)

@@ -9,9 +9,11 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from .discord import DiscordClient
+from .discord_worker import process_discord
 from .errors import NotifierError, ValidationError
 from .github import GitHubClient
-from .model import ReleaseRequest
+from .model import DiscordNotification, ReleaseRequest
 from .store import StateStore
 from .worker import process_all
 
@@ -25,6 +27,16 @@ def _client(args: argparse.Namespace) -> GitHubClient:
     if not token:
         raise ValidationError(f"GitHub token environment variable is not set: {args.token_env}")
     return GitHubClient(token=token, api_url=args.api_url)
+
+
+def _discord_client(args: argparse.Namespace) -> DiscordClient:
+    webhook_url = os.environ.get(args.discord_webhook_env, "")
+    if not webhook_url:
+        raise ValidationError(
+            "Discord webhook environment variable is not set: "
+            f"{args.discord_webhook_env}"
+        )
+    return DiscordClient(webhook_url)
 
 
 def _add_state_file(parser: argparse.ArgumentParser) -> None:
@@ -82,6 +94,19 @@ def _request_from_environment() -> ReleaseRequest:
     return ReleaseRequest.from_dict(value)
 
 
+def _discord_notification_from_environment() -> DiscordNotification:
+    return DiscordNotification.from_dict(
+        {
+            "schemaVersion": 1,
+            "title": _required_environment("DISCORD_TITLE"),
+            "description": _required_environment("DISCORD_DESCRIPTION"),
+            "footer": _required_environment("DISCORD_FOOTER"),
+            "link": _required_environment("DISCORD_LINK"),
+            "result": _required_environment("DISCORD_RESULT"),
+        }
+    )
+
+
 def _add_github(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--token-env",
@@ -103,6 +128,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_state_file(parameter_parser)
 
+    discord_parameter_parser = subparsers.add_parser(
+        "submit-discord-parameters",
+        help="validate and enqueue Discord Jenkins parameters",
+    )
+    _add_state_file(discord_parameter_parser)
+
     describe_parser = subparsers.add_parser(
         "describe-state", help="encode queue state for a Jenkins build description"
     )
@@ -117,6 +148,28 @@ def build_parser() -> argparse.ArgumentParser:
     process_parser = subparsers.add_parser("process", help="post queued notifications")
     _add_state_file(process_parser)
     _add_github(process_parser)
+    process_parser.add_argument(
+        "--discord-webhook-env",
+        default="DISCORD_WEBHOOK_URL",
+        help="environment variable containing the Discord webhook URL",
+    )
+    process_parser.add_argument(
+        "--delivery",
+        choices=("all", "github", "discord"),
+        default="all",
+        help="notification service to process",
+    )
+
+    pending_parser = subparsers.add_parser(
+        "has-pending", help="return success when a notification service has queued work"
+    )
+    _add_state_file(pending_parser)
+    pending_parser.add_argument(
+        "--delivery",
+        choices=("github", "discord"),
+        required=True,
+        help="notification service to check",
+    )
 
     inspect_parser = subparsers.add_parser("inspect", help="inspect queue and delivery state")
     _add_state_file(inspect_parser)
@@ -127,9 +180,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _human_inspect(channels: list[dict[str, Any]]) -> str:
-    if not channels:
-        return "No matching channels."
+def _human_inspect(
+    channels: list[dict[str, Any]], discord_notifications: list[dict[str, Any]]
+) -> str:
     lines: list[str] = []
     for channel in channels:
         lines.append(
@@ -144,6 +197,17 @@ def _human_inspect(channels: list[dict[str, Any]]) -> str:
             lines.append(f"    {request['baseCommit']}..{request['headCommit']}")
             if request["lastError"]:
                 lines.append(f"    error: {request['lastError']}")
+    if discord_notifications:
+        lines.append("Discord:")
+        for notification in discord_notifications:
+            lines.append(
+                f"  {notification['requestKey']} {notification['result']} "
+                f"{notification['title']}"
+            )
+            if notification["lastError"]:
+                lines.append(f"    error: {notification['lastError']}")
+    if not lines:
+        return "No queued notifications."
     return "\n".join(lines)
 
 
@@ -159,6 +223,16 @@ def run(args: argparse.Namespace) -> int:
         store = StateStore(_path_for_args(args))
         created = store.enqueue(request)
         print(f"{'Queued' if created else 'Already queued'} request {request.request_key}")
+        return 0
+
+    if args.command == "submit-discord-parameters":
+        notification = _discord_notification_from_environment()
+        store = StateStore(_path_for_args(args))
+        created = store.enqueue_discord(notification)
+        print(
+            f"{'Queued' if created else 'Already queued'} Discord notification "
+            f"{notification.request_key}"
+        )
         return 0
 
     if args.command == "describe-state":
@@ -178,7 +252,10 @@ def run(args: argparse.Namespace) -> int:
 
     if args.command == "process":
         store = StateStore(_path_for_args(args))
-        completed, failures = process_all(store, _client(args))
+        completed = ()
+        failures = ()
+        if args.delivery in ("all", "github") and store.pending_channels():
+            completed, failures = process_all(store, _client(args))
         for item in completed:
             print(
                 f"Completed {item.repository}/{item.channel} {item.version} "
@@ -190,15 +267,47 @@ def run(args: argparse.Namespace) -> int:
                 f"{failure.message}",
                 file=sys.stderr,
             )
-        return 1 if failures else 0
+        discord_completed = ()
+        discord_failure = None
+        if args.delivery in ("all", "discord") and store.next_discord() is not None:
+            discord_completed, discord_failure = process_discord(
+                store, _discord_client(args)
+            )
+        for item in discord_completed:
+            print(
+                f"Completed Discord notification {item.title} "
+                f"(message {item.message_id}): {item.request_key}"
+            )
+        if discord_failure is not None:
+            print(
+                f"Failed Discord notification {discord_failure.title} "
+                f"{discord_failure.request_key}: {discord_failure.message}",
+                file=sys.stderr,
+            )
+        return 1 if failures or discord_failure is not None else 0
 
     store = StateStore(_path_for_args(args))
+    if args.command == "has-pending":
+        if args.delivery == "github":
+            return 0 if store.pending_channels() else 1
+        return 0 if store.next_discord() is not None else 1
+
     if args.command == "inspect":
         channels = store.inspect(args.repository, args.channel)
+        discord_notifications = store.inspect_discord()
         if args.json:
-            print(json.dumps(channels, indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    {
+                        "channels": channels,
+                        "discordNotifications": discord_notifications,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
         else:
-            print(_human_inspect(channels))
+            print(_human_inspect(channels, discord_notifications))
         return 0
     raise AssertionError(f"unhandled command: {args.command}")
 

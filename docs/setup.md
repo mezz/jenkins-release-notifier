@@ -1,4 +1,4 @@
-# Set up Jenkins Release Notifier 0.1.1
+# Set up Jenkins Release Notifier 0.2.0
 
 No global Jenkins library or administrator configuration is required. Create
 one worker job, then configure each project from its Jenkinsfile.
@@ -17,6 +17,10 @@ Save it in Jenkins as a **Secret text** credential with the ID:
 github-release-comment-token
 ```
 
+To send Discord notifications, also save the Discord webhook URL as a
+**Secret text** credential with the ID `discord-webhook-url`. This
+credential is not needed for GitHub-only use.
+
 Create a **Pipeline** job named `release-notifier-worker`. Select
 **Pipeline script from SCM** and enter:
 
@@ -24,7 +28,7 @@ Create a **Pipeline** job named `release-notifier-worker`. Select
 | --- | --- |
 | SCM | Git |
 | Repository URL | `https://github.com/mezz/jenkins-release-notifier.git` |
-| Branch Specifier | `refs/tags/v0.1.1` |
+| Branch Specifier | `refs/tags/v0.2.0` |
 | Script Path | `Jenkinsfile` |
 
 Run the job once to initialize it. The selected agent must have Python 3.11 or
@@ -32,20 +36,24 @@ newer. Configure Jenkins to retain at least ten builds for this job.
 
 ## Configure a project Jenkinsfile
 
+Load the library once before the `pipeline` block:
+
+```groovy
+library(
+    identifier: 'jenkins-release-notifier@v0.2.0',
+    retriever: modernSCM([
+        $class: 'GitSCMSource',
+        remote: 'https://github.com/mezz/jenkins-release-notifier.git'
+    ])
+)
+```
+
 Add this stage after the project publishes its release:
 
 ```groovy
 stage('Notify Released Issues') {
     steps {
         script {
-            library(
-                identifier: 'jenkins-release-notifier@v0.1.1',
-                retriever: modernSCM([
-                    $class: 'GitSCMSource',
-                    remote: 'https://github.com/mezz/jenkins-release-notifier.git'
-                ])
-            )
-
             releaseNotifier(
                 workerJob: '/release-notifier-worker',
                 repository: 'your-name/your-project',

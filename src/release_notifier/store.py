@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .errors import QueueConflictError, StoreError, UnsupportedSchemaError, ValidationError
-from .model import CommentTarget, ReleaseRequest
+from .model import CommentTarget, DiscordNotification, ReleaseRequest
 
 
 STATE_SCHEMA_VERSION = 1
@@ -23,6 +23,7 @@ MAX_DESCRIPTION_LENGTH = 2_000_000
 MAX_STATE_JSON_BYTES = 5_000_000
 REQUEST_KEY_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 DELIVERY_STATUSES = frozenset({"pending", "created", "marker_confirmed"})
+MAX_DISCORD_DELIVERED_KEYS = 1000
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,12 @@ class _ChannelState:
         return self.repository.casefold()
 
 
+@dataclass
+class _DiscordNotificationState:
+    notification: DiscordNotification
+    last_error: str | None
+
+
 def _expected_marker(request: ReleaseRequest, target: CommentTarget) -> str:
     kind = "pull-request" if target.kind == "pull_request" else "issue"
     return f"release-notifier:v1:{request.request_key}:{kind}:{target.number}"
@@ -76,7 +83,11 @@ class StateStore:
             value = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise StoreError(f"could not read notifier state file: {self.path}") from error
-        self._channels = self._parse_snapshot(value)
+        (
+            self._channels,
+            self._discord_notifications,
+            self._discord_delivered_keys,
+        ) = self._parse_snapshot(value)
 
     @classmethod
     def initialize(cls, path: Path | str) -> StateStore:
@@ -85,7 +96,12 @@ class StateStore:
             return cls(state_path)
         cls._write_snapshot(
             state_path,
-            {"schemaVersion": STATE_SCHEMA_VERSION, "channels": []},
+            {
+                "schemaVersion": STATE_SCHEMA_VERSION,
+                "channels": [],
+                "discordNotifications": [],
+                "discordDeliveredKeys": [],
+            },
         )
         return cls(state_path)
 
@@ -106,10 +122,15 @@ class StateStore:
             raise StoreError(f"could not write notifier state file: {path}") from error
 
     @classmethod
-    def _parse_snapshot(cls, value: Any) -> list[_ChannelState]:
+    def _parse_snapshot(
+        cls, value: Any
+    ) -> tuple[list[_ChannelState], list[_DiscordNotificationState], list[str]]:
         if not isinstance(value, dict):
             raise StoreError("notifier state must be a JSON object")
-        if set(value) != {"schemaVersion", "channels"}:
+        fields = set(value)
+        old_fields = {"schemaVersion", "channels"}
+        current_fields = old_fields | {"discordNotifications", "discordDeliveredKeys"}
+        if fields != old_fields and fields != current_fields:
             raise StoreError("notifier state has invalid fields")
         version = value.get("schemaVersion")
         if version != STATE_SCHEMA_VERSION:
@@ -237,9 +258,58 @@ class StateStore:
                         requests=requests,
                     )
                 )
+            discord_notifications_value = value.get("discordNotifications", [])
+            discord_delivered_keys_value = value.get("discordDeliveredKeys", [])
+            if not isinstance(discord_notifications_value, list):
+                raise StoreError("stored Discord notifications must be an array")
+            if not isinstance(discord_delivered_keys_value, list):
+                raise StoreError("stored Discord delivered keys must be an array")
+            if len(discord_delivered_keys_value) > MAX_DISCORD_DELIVERED_KEYS:
+                raise StoreError("stored Discord delivered key list is too large")
+
+            delivered_keys: list[str] = []
+            seen_discord_keys: set[str] = set()
+            for key in discord_delivered_keys_value:
+                if not isinstance(key, str) or not REQUEST_KEY_PATTERN.fullmatch(key):
+                    raise StoreError("stored Discord delivered key is invalid")
+                if key in seen_discord_keys:
+                    raise StoreError("stored Discord delivered key list contains duplicates")
+                seen_discord_keys.add(key)
+                delivered_keys.append(key)
+
+            discord_notifications: list[_DiscordNotificationState] = []
+            for notification_index, notification_value in enumerate(
+                discord_notifications_value
+            ):
+                if not isinstance(notification_value, dict) or set(notification_value) != {
+                    "notification",
+                    "lastError",
+                }:
+                    raise StoreError(
+                        f"stored Discord notification {notification_index} has invalid fields"
+                    )
+                notification = DiscordNotification.from_dict(
+                    notification_value["notification"]
+                )
+                if notification.request_key in seen_discord_keys:
+                    raise StoreError("stored Discord notification key is duplicated")
+                seen_discord_keys.add(notification.request_key)
+                last_error = notification_value["lastError"]
+                if last_error is not None and (
+                    not isinstance(last_error, str)
+                    or len(last_error) > 2000
+                    or any(
+                        ord(character) < 32 or ord(character) == 127
+                        for character in last_error
+                    )
+                ):
+                    raise StoreError("stored Discord notification error is invalid")
+                discord_notifications.append(
+                    _DiscordNotificationState(notification, last_error)
+                )
         except (ValidationError, KeyError, TypeError, ValueError) as error:
             raise StoreError("stored notifier state failed validation") from error
-        return channels
+        return channels, discord_notifications, delivered_keys
 
     def _snapshot(self) -> dict[str, Any]:
         return {
@@ -268,6 +338,14 @@ class StateStore:
                     self._channels, key=lambda item: (item.repository_key, item.channel)
                 )
             ],
+            "discordNotifications": [
+                {
+                    "notification": item.notification.to_dict(),
+                    "lastError": item.last_error,
+                }
+                for item in self._discord_notifications
+            ],
+            "discordDeliveredKeys": self._discord_delivered_keys,
         }
 
     def _save(self) -> None:
@@ -333,6 +411,64 @@ class StateStore:
         channel.requests.append(_RequestState(request, None, None, None))
         self._save()
         return True
+
+    def enqueue_discord(self, notification: DiscordNotification) -> bool:
+        """Queue a Discord message unless the same payload is pending or delivered."""
+
+        if notification.request_key in self._discord_delivered_keys:
+            return False
+        for item in self._discord_notifications:
+            if item.notification.request_key == notification.request_key:
+                return False
+        self._discord_notifications.append(_DiscordNotificationState(notification, None))
+        self._save()
+        return True
+
+    def next_discord(self) -> DiscordNotification | None:
+        if not self._discord_notifications:
+            return None
+        return self._discord_notifications[0].notification
+
+    def complete_discord(self, notification: DiscordNotification) -> None:
+        if (
+            not self._discord_notifications
+            or self._discord_notifications[0].notification.request_key
+            != notification.request_key
+        ):
+            raise StoreError("Discord completion attempted out of queue order")
+        self._discord_notifications.pop(0)
+        self._discord_delivered_keys.append(notification.request_key)
+        if len(self._discord_delivered_keys) > MAX_DISCORD_DELIVERED_KEYS:
+            self._discord_delivered_keys = self._discord_delivered_keys[
+                -MAX_DISCORD_DELIVERED_KEYS:
+            ]
+        self._save()
+
+    def fail_discord(self, notification: DiscordNotification, message: str) -> None:
+        state = next(
+            (
+                item
+                for item in self._discord_notifications
+                if item.notification.request_key == notification.request_key
+            ),
+            None,
+        )
+        if state is None:
+            return
+        state.last_error = message.replace("\r", " ").replace("\n", " ")[:2000]
+        self._save()
+
+    def inspect_discord(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "requestKey": item.notification.request_key,
+                "title": item.notification.title,
+                "result": item.notification.result,
+                "link": item.notification.link,
+                "lastError": item.last_error,
+            }
+            for item in self._discord_notifications
+        ]
 
     def pending_channels(self) -> tuple[tuple[str, str], ...]:
         return tuple(

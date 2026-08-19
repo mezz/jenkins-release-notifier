@@ -39,6 +39,26 @@ class CliTest(unittest.TestCase):
                     self.assertEqual(
                         0, main(["submit-parameters", *common_state_args])
                     )
+                discord_values = {
+                    "DISCORD_TITLE": "Example #12",
+                    "DISCORD_DESCRIPTION": "**Result:** SUCCESS",
+                    "DISCORD_FOOTER": "Example Jenkins",
+                    "DISCORD_LINK": "https://ci.example.invalid/job/example/12/",
+                    "DISCORD_RESULT": "SUCCESS",
+                }
+                with patch.dict(os.environ, discord_values, clear=False):
+                    self.assertEqual(
+                        0,
+                        main(["submit-discord-parameters", *common_state_args]),
+                    )
+                self.assertEqual(
+                    0,
+                    main(["has-pending", *common_state_args, "--delivery", "github"]),
+                )
+                self.assertEqual(
+                    0,
+                    main(["has-pending", *common_state_args, "--delivery", "discord"]),
+                )
                 output = io.StringIO()
                 with redirect_stdout(output):
                     self.assertEqual(0, main(["describe-state", *common_state_args]))
@@ -67,6 +87,11 @@ class CliTest(unittest.TestCase):
             self.assertEqual(["1.21.1"], request_value["minecraftVersions"])
             self.assertEqual(["Fabric", "NeoForge"], request_value["modLoaders"])
             self.assertEqual(2, len(request_value["releaseLinks"]))
+            discord_value = json.loads(restored.read_text(encoding="utf-8"))[
+                "discordNotifications"
+            ][0]["notification"]
+            self.assertEqual("Example #12", discord_value["title"])
+            self.assertEqual("SUCCESS", discord_value["result"])
 
 
 if __name__ == "__main__":

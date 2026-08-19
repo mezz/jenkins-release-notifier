@@ -5,9 +5,9 @@ import unittest
 from dataclasses import replace
 
 from release_notifier.errors import UnsupportedSchemaError, ValidationError
-from release_notifier.model import ReleaseRequest
+from release_notifier.model import DiscordNotification, ReleaseRequest
 
-from tests.support import request
+from tests.support import discord_notification, request
 
 
 class ReleaseRequestTest(unittest.TestCase):
@@ -89,6 +89,27 @@ class ReleaseRequestTest(unittest.TestCase):
 
         self.assertEqual(release.request_key, changed.request_key)
         self.assertNotEqual(release.to_json(), changed.to_json())
+
+
+class DiscordNotificationTest(unittest.TestCase):
+    def test_round_trips_with_stable_request_key(self) -> None:
+        notification = discord_notification()
+
+        restored = DiscordNotification.from_dict(notification.to_dict())
+
+        self.assertEqual(notification, restored)
+        self.assertEqual(notification.request_key, restored.request_key)
+
+    def test_rejects_invalid_result_and_oversized_embed(self) -> None:
+        value = discord_notification().to_dict()
+        value["result"] = "UNKNOWN"
+        with self.assertRaisesRegex(ValidationError, "result must be one of"):
+            DiscordNotification.from_dict(value)
+
+        value = discord_notification().to_dict()
+        value["description"] = "x" * 4097
+        with self.assertRaisesRegex(ValidationError, "at most 4096"):
+            DiscordNotification.from_dict(value)
 
 
 if __name__ == "__main__":

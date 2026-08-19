@@ -1,0 +1,14 @@
+Queues the current Jenkins build result for delivery to Discord. The worker
+holds the webhook credential and retries messages that Discord has not
+confirmed.
+
+workerJob selects the release-notifier worker. The optional projectName is used
+in the footer. repository or githubUrl enables commit links. version and
+releaseLinks can be supplied explicitly.
+
+For Gradle mod projects, the step can read githubUrl, specificationVersion,
+curseHomepageUrl, and modrinthId from gradle.properties. It also reads
+CurseForge and Modrinth links written by the Mod Publish Plugin.
+
+getGradleReleaseMetadata() returns projectName, version, minecraftVersion,
+modLoaders, and releaseLinks for passing to releaseNotifier.

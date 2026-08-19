@@ -13,6 +13,7 @@ from .errors import UnsupportedSchemaError, ValidationError
 
 
 REQUEST_SCHEMA_VERSION = 1
+DISCORD_NOTIFICATION_SCHEMA_VERSION = 1
 COMMIT_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 REPOSITORY_PART_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$")
 SENSITIVE_URL_PARAMETER_NAMES = frozenset(
@@ -47,6 +48,7 @@ ALLOWED_FIELDS = frozenset(
         "enhancementLabels",
     }
 )
+DISCORD_RESULTS = frozenset({"SUCCESS", "UNSTABLE", "FAILURE", "ABORTED", "NOT_BUILT"})
 
 
 def _plain_string(value: Any, field: str, *, maximum: int = 256) -> str:
@@ -95,6 +97,23 @@ def _markdown_string(value: Any, field: str) -> str:
     return normalized
 
 
+def _multiline_string(value: Any, field: str, *, maximum: int) -> str:
+    if not isinstance(value, str):
+        raise ValidationError(f"{field} must be a string")
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        raise ValidationError(f"{field} must not be empty")
+    if len(normalized) > maximum:
+        raise ValidationError(f"{field} must be at most {maximum} characters")
+    if any(
+        (ord(character) < 32 and character not in {"\n", "\t"})
+        or ord(character) == 127
+        for character in normalized
+    ):
+        raise ValidationError(f"{field} must not contain control characters")
+    return normalized
+
+
 def _validated_url(value: Any, field: str) -> str:
     url = _plain_string(value, field, maximum=2048)
     parsed = urlsplit(url)
@@ -134,6 +153,67 @@ class ReleaseLink:
 
     def to_dict(self) -> dict[str, str]:
         return {"label": self.label, "url": self.url}
+
+
+@dataclass(frozen=True)
+class DiscordNotification:
+    schema_version: int
+    title: str
+    description: str
+    footer: str
+    link: str
+    result: str
+
+    @classmethod
+    def from_dict(cls, value: Any) -> DiscordNotification:
+        expected_fields = {
+            "schemaVersion",
+            "title",
+            "description",
+            "footer",
+            "link",
+            "result",
+        }
+        if not isinstance(value, Mapping) or set(value) != expected_fields:
+            raise ValidationError("Discord notification has invalid fields")
+        schema_version = value.get("schemaVersion")
+        if schema_version != DISCORD_NOTIFICATION_SCHEMA_VERSION:
+            raise UnsupportedSchemaError(
+                f"unsupported Discord notification schema version: {schema_version!r}; "
+                f"expected {DISCORD_NOTIFICATION_SCHEMA_VERSION}"
+            )
+        title = _plain_string(value.get("title"), "title", maximum=256)
+        description = _multiline_string(
+            value.get("description"), "description", maximum=4096
+        )
+        footer = _plain_string(value.get("footer"), "footer", maximum=2048)
+        link = _validated_url(value.get("link"), "link")
+        result = _plain_string(value.get("result"), "result", maximum=32).upper()
+        if result not in DISCORD_RESULTS:
+            raise ValidationError(
+                f"result must be one of: {', '.join(sorted(DISCORD_RESULTS))}"
+            )
+        if len(title) + len(description) + len(footer) > 6000:
+            raise ValidationError("Discord embed text must be at most 6000 characters")
+        return cls(schema_version, title, description, footer, link, result)
+
+    @property
+    def request_key(self) -> str:
+        encoded = self.to_json().encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schemaVersion": self.schema_version,
+            "title": self.title,
+            "description": self.description,
+            "footer": self.footer,
+            "link": self.link,
+            "result": self.result,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
 
 
 @dataclass(frozen=True)
