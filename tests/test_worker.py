@@ -4,7 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from release_notifier.errors import AmbiguousWriteError, TransientGitHubError
+from release_notifier.errors import (
+    AmbiguousWriteError,
+    PermanentGitHubError,
+    TransientGitHubError,
+    UnavailableGitHubTargetError,
+)
 from release_notifier.github import ComparedRange, CompareCommit
 from release_notifier.store import StateStore
 from release_notifier.worker import process_all, process_channel
@@ -89,6 +94,39 @@ class WorkerTest(unittest.TestCase):
 
         self.assertEqual([], github.create_attempts)
         self.assertEqual("b" * 40, self.store.inspect()[0]["checkpoint"])
+
+    def test_unavailable_target_does_not_block_the_release_channel(self) -> None:
+        release = request()
+        self.store.enqueue(release)
+        github = FakeGitHub()
+        github.add_release(release, pull_number=1, fixed_issue=2)
+
+        def reject_locked_issue(number: int, body: str) -> None:
+            if number == 2:
+                raise UnavailableGitHubTargetError("issue is locked")
+            github.comments[number].append(body)
+
+        github.create_hook = reject_locked_issue
+
+        completed = process_channel(self.store, github, release.repository, release.channel)
+
+        self.assertEqual(1, completed[0].unavailable_targets)
+        self.assertEqual([1, 2], github.create_attempts)
+        self.assertEqual([], self.store.inspect()[0]["requests"])
+
+    def test_other_permanent_errors_still_block_the_release_channel(self) -> None:
+        release = request()
+        self.store.enqueue(release)
+        github = FakeGitHub()
+        github.add_release(release, pull_number=1)
+        github.create_hook = lambda number, body: (_ for _ in ()).throw(
+            PermanentGitHubError("bad credentials")
+        )
+
+        with self.assertRaises(PermanentGitHubError):
+            process_channel(self.store, github, release.repository, release.channel)
+
+        self.assertEqual("a" * 40, self.store.inspect()[0]["checkpoint"])
 
     def test_target_plan_is_not_rediscovered_after_partial_failure(self) -> None:
         release = request()

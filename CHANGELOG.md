@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-09-10
+
+- Skips deleted GitHub targets and targets locked against new comments so one
+  permanent delivery failure cannot block later releases in the same channel.
+
 ## 0.2.0 - 2026-08-19
 
 - Adds queued Discord build notifications with commit and release links.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
-from .errors import RangeError
+from .errors import RangeError, UnavailableGitHubTargetError
 from .github import ComparedRange, Issue, PullRequest
 from .model import CommentTarget, ReleaseRequest
 
@@ -95,7 +95,10 @@ def discover_targets(client: DiscoveryClient, request: ReleaseRequest) -> tuple[
 
     issues: dict[int, Issue] = {}
     for issue_number in sorted(issue_to_pull_request):
-        issue = client.issue(request.repository, issue_number)
+        try:
+            issue = client.issue(request.repository, issue_number)
+        except UnavailableGitHubTargetError:
+            continue
         if issue.is_pull_request:
             continue
         issues[issue_number] = issue

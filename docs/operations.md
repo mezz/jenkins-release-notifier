@@ -9,6 +9,11 @@ deliveries, and the last error. For GitHub, check the API response, token
 permissions, and commit range. For Discord, check that
 `discord-webhook-url` still contains a working webhook URL.
 
+Deleted GitHub issues or pull requests, and ones that GitHub has locked against
+new comments, are unavailable deliveries. The worker skips them so they do not
+permanently block later releases in the same channel. Other failures remain
+queued for retry.
+
 If a project published successfully but did not submit its notification, run
 the project's notification step again with the same version, commits, and
 links. Submitting the same request again does not create duplicate comments.

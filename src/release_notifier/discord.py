@@ -12,6 +12,7 @@ import urllib.request
 from email.message import Message
 from typing import Any, Callable, Mapping
 
+from . import __version__
 from .errors import PermanentDiscordError, TransientDiscordError, ValidationError
 from .model import DiscordNotification
 
@@ -116,7 +117,8 @@ class DiscordClient:
             headers={
                 "Content-Type": "application/json",
                 "User-Agent": (
-                    "DiscordBot (https://github.com/mezz/jenkins-release-notifier, 0.2.0)"
+                    "DiscordBot (https://github.com/mezz/jenkins-release-notifier, "
+                    f"{__version__})"
                 ),
             },
             method="POST",

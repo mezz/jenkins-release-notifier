@@ -7,7 +7,11 @@ import urllib.error
 from collections import deque
 from typing import Any
 
-from release_notifier.errors import AmbiguousWriteError, PermanentGitHubError
+from release_notifier.errors import (
+    AmbiguousWriteError,
+    PermanentGitHubError,
+    UnavailableGitHubTargetError,
+)
 from release_notifier.github import GitHubClient
 
 
@@ -26,13 +30,18 @@ class FakeResponse:
         return self._body
 
 
-def http_error(status: int, *, headers: dict[str, str] | None = None) -> urllib.error.HTTPError:
+def http_error(
+    status: int,
+    *,
+    headers: dict[str, str] | None = None,
+    detail: str = "temporary failure",
+) -> urllib.error.HTTPError:
     return urllib.error.HTTPError(
         "https://api.github.com/test",
         status,
         "failure",
         headers or {},
-        io.BytesIO(b'{"message":"temporary failure"}'),
+        io.BytesIO(json.dumps({"message": detail}).encode("utf-8")),
     )
 
 
@@ -108,6 +117,42 @@ class GitHubClientTest(unittest.TestCase):
 
         with self.assertRaises(PermanentGitHubError):
             client.create_comment("mezz/Example", 4, "Released")
+
+    def test_locked_comment_target_is_classified_as_unavailable(self) -> None:
+        opener = QueueOpener(
+            http_error(403, detail="Unable to create comment because issue is locked.")
+        )
+        client = GitHubClient("token", opener=opener)
+
+        with self.assertRaises(UnavailableGitHubTargetError):
+            client.create_comment("mezz/Example", 4, "Released")
+
+    def test_missing_issue_is_classified_as_unavailable(self) -> None:
+        opener = QueueOpener(
+            http_error(404, detail="Not Found"),
+            FakeResponse({"full_name": "mezz/Example"}),
+        )
+        client = GitHubClient("token", opener=opener)
+
+        with self.assertRaises(UnavailableGitHubTargetError):
+            client.issue("mezz/Example", 4)
+
+        self.assertEqual(
+            "https://api.github.com/repos/mezz/Example",
+            opener.requests[1].full_url,
+        )
+
+    def test_hidden_repository_is_not_mistaken_for_a_missing_target(self) -> None:
+        opener = QueueOpener(
+            http_error(404, detail="Not Found"),
+            http_error(404, detail="Not Found"),
+        )
+        client = GitHubClient("token", opener=opener)
+
+        with self.assertRaises(PermanentGitHubError) as context:
+            client.issue("mezz/Example", 4)
+
+        self.assertNotIsInstance(context.exception, UnavailableGitHubTargetError)
 
     def test_paginated_comments_follow_all_pages_on_same_api_origin(self) -> None:
         next_url = "https://api.github.com/repos/mezz/Example/issues/2/comments?per_page=100&page=2"
@@ -228,11 +273,11 @@ class GitHubClientTest(unittest.TestCase):
         self.assertEqual(2, client.calls)
 
     def test_error_text_does_not_expose_authorization_token(self) -> None:
-        opener = QueueOpener(http_error(404))
+        opener = QueueOpener(http_error(401))
         client = GitHubClient("do-not-log-this-token", opener=opener)
 
         with self.assertRaises(PermanentGitHubError) as context:
-            client.issue("mezz/Example", 404)
+            client.issue("mezz/Example", 401)
 
         self.assertNotIn("do-not-log-this-token", str(context.exception))
 

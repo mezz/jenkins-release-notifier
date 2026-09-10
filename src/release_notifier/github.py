@@ -17,6 +17,7 @@ from .errors import (
     GitHubError,
     PermanentGitHubError,
     TransientGitHubError,
+    UnavailableGitHubTargetError,
     ValidationError,
 )
 
@@ -205,7 +206,11 @@ class GitHubClient:
                     raise AmbiguousWriteError(message) from error
                 if retryable:
                     raise TransientGitHubError(message) from error
-                raise PermanentGitHubError(message) from error
+                raise PermanentGitHubError(
+                    message,
+                    status_code=error.code,
+                    response_detail=detail,
+                ) from error
             except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError) as error:
                 if safe_to_retry and attempt < len(self.retry_delays):
                     self._sleeper(min(self.retry_delays[attempt], self.max_server_delay))
@@ -229,6 +234,37 @@ class GitHubClient:
             result.extend(value)
             next_url = get_next_link(headers.get("link", ""))
         return result
+
+    def _target_is_unavailable(
+        self,
+        repository_path: str,
+        error: PermanentGitHubError,
+        *,
+        locked_comment_is_unavailable: bool = False,
+    ) -> bool:
+        detail = (error.response_detail or "").casefold()
+        if (
+            locked_comment_is_unavailable
+            and error.status_code == 403
+            and "issue is locked" in detail
+        ):
+            return True
+        if error.status_code != 404:
+            return False
+
+        # GitHub also returns 404 when a token cannot see a repository. Confirm
+        # repository access before interpreting the target-specific 404 as a
+        # deleted issue or pull request.
+        self.request_json("GET", f"/repos/{repository_path}", safe_to_retry=True)
+        return True
+
+    @staticmethod
+    def _unavailable_target(error: PermanentGitHubError) -> UnavailableGitHubTargetError:
+        return UnavailableGitHubTargetError(
+            str(error),
+            status_code=error.status_code,
+            response_detail=error.response_detail,
+        )
 
     def compare_range(self, repository: str, base: str, head: str) -> ComparedRange:
         repository_path = urllib.parse.quote(repository, safe="/")
@@ -367,9 +403,14 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
 
     def issue(self, repository: str, number: int) -> Issue:
         repository_path = urllib.parse.quote(repository, safe="/")
-        value, _ = self.request_json(
-            "GET", f"/repos/{repository_path}/issues/{number}", safe_to_retry=True
-        )
+        try:
+            value, _ = self.request_json(
+                "GET", f"/repos/{repository_path}/issues/{number}", safe_to_retry=True
+            )
+        except PermanentGitHubError as error:
+            if self._target_is_unavailable(repository_path, error):
+                raise self._unavailable_target(error) from error
+            raise
         if not isinstance(value, dict):
             raise GitHubError("GitHub issue API returned an invalid response")
         labels: set[str] = set()
@@ -390,9 +431,14 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
 
     def comment_bodies(self, repository: str, number: int) -> tuple[str, ...]:
         repository_path = urllib.parse.quote(repository, safe="/")
-        items = self._paginate_array(
-            f"/repos/{repository_path}/issues/{number}/comments?per_page=100"
-        )
+        try:
+            items = self._paginate_array(
+                f"/repos/{repository_path}/issues/{number}/comments?per_page=100"
+            )
+        except PermanentGitHubError as error:
+            if self._target_is_unavailable(repository_path, error):
+                raise self._unavailable_target(error) from error
+            raise
         result: list[str] = []
         for item in items:
             if not isinstance(item, dict) or not isinstance(item.get("body"), str):
@@ -402,10 +448,19 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
 
     def create_comment(self, repository: str, number: int, body: str) -> None:
         repository_path = urllib.parse.quote(repository, safe="/")
-        self.request_json(
-            "POST",
-            f"/repos/{repository_path}/issues/{number}/comments",
-            {"body": body},
-            safe_to_retry=False,
-            ambiguous_write=True,
-        )
+        try:
+            self.request_json(
+                "POST",
+                f"/repos/{repository_path}/issues/{number}/comments",
+                {"body": body},
+                safe_to_retry=False,
+                ambiguous_write=True,
+            )
+        except PermanentGitHubError as error:
+            if self._target_is_unavailable(
+                repository_path,
+                error,
+                locked_comment_is_unavailable=True,
+            ):
+                raise self._unavailable_target(error) from error
+            raise

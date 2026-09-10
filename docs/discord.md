@@ -8,7 +8,7 @@ Load the library once before the `pipeline` block:
 
 ```groovy
 library(
-    identifier: 'jenkins-release-notifier@v0.2.0',
+    identifier: 'jenkins-release-notifier@v0.2.1',
     retriever: modernSCM([
         $class: 'GitSCMSource',
         remote: 'https://github.com/mezz/jenkins-release-notifier.git'

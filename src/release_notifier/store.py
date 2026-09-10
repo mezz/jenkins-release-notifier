@@ -22,7 +22,7 @@ DESCRIPTION_PREFIX = "jenkins-release-notifier-state:v1:"
 MAX_DESCRIPTION_LENGTH = 2_000_000
 MAX_STATE_JSON_BYTES = 5_000_000
 REQUEST_KEY_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-DELIVERY_STATUSES = frozenset({"pending", "created", "marker_confirmed"})
+DELIVERY_STATUSES = frozenset({"pending", "created", "marker_confirmed", "unavailable"})
 MAX_DISCORD_DELIVERED_KEYS = 1000
 
 
@@ -526,7 +526,7 @@ class StateStore:
         self, request: ReleaseRequest, target: CommentTarget, status: str
     ) -> None:
         if status not in DELIVERY_STATUSES - {"pending"}:
-            raise StoreError(f"invalid successful delivery status: {status}")
+            raise StoreError(f"invalid completed delivery status: {status}")
         channel = self._find_channel(request.repository, request.channel)
         if channel is None:
             raise StoreError(f"request channel is missing: {request.repository}/{request.channel}")
@@ -597,6 +597,7 @@ class StateStore:
                         "status": "queued" if request_state.targets is None else "delivering",
                         "targets": len(statuses),
                         "delivered": sum(status != "pending" for status in statuses),
+                        "unavailable": statuses.count("unavailable"),
                         "lastError": request_state.last_error,
                     }
                 )

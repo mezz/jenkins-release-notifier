@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from release_notifier.discovery import discover_targets, issue_numbers_from_text
-from release_notifier.errors import RangeError
+from release_notifier.errors import RangeError, UnavailableGitHubTargetError
 from release_notifier.github import ComparedRange, CompareCommit, Issue, PullRequest
 
 from tests.support import FakeGitHub, request
@@ -69,6 +69,19 @@ class DiscoveryTest(unittest.TestCase):
         client.ranges[(release.base_commit, release.head_commit)] = ComparedRange("identical", ())
 
         self.assertEqual((), discover_targets(client, release))
+
+    def test_deleted_issue_reference_is_skipped(self) -> None:
+        release = request()
+        client = FakeGitHub()
+        client.add_release(release, pull_number=4, fixed_issue=5)
+        client.issues[5] = UnavailableGitHubTargetError("issue was deleted")
+
+        targets = discover_targets(client, release)
+
+        self.assertEqual(
+            [("pull_request", 4)],
+            [(target.kind, target.number) for target in targets],
+        )
 
     def test_rejects_divergent_and_truncated_ranges(self) -> None:
         release = request()

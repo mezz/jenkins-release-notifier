@@ -191,6 +191,8 @@ def _human_inspect(
         )
         for request in channel["requests"]:
             progress = f"{request['delivered']}/{request['targets']} targets"
+            if request["unavailable"]:
+                progress += f", {request['unavailable']} unavailable"
             lines.append(
                 f"  {request['requestKey']} {request['version']} {request['status']} {progress}"
             )
@@ -257,9 +259,14 @@ def run(args: argparse.Namespace) -> int:
         if args.delivery in ("all", "github") and store.pending_channels():
             completed, failures = process_all(store, _client(args))
         for item in completed:
+            unavailable = (
+                f", {item.unavailable_targets} unavailable"
+                if item.unavailable_targets
+                else ""
+            )
             print(
                 f"Completed {item.repository}/{item.channel} {item.version} "
-                f"({item.targets} targets): {item.request_key}"
+                f"({item.targets} targets{unavailable}): {item.request_key}"
             )
         for failure in failures:
             print(

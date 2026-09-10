@@ -105,6 +105,22 @@ class StateStoreTest(unittest.TestCase):
             restarted.inspect()[0]["requests"][0]["lastError"],
         )
 
+    def test_unavailable_delivery_survives_reload_and_allows_completion(self) -> None:
+        release = request()
+        target = self.target(release)
+        self.store.enqueue(release)
+        self.store.set_targets(release, (target,))
+        self.store.mark_delivery(release, target, "unavailable")
+
+        restarted = StateStore(self.state_file)
+
+        self.assertEqual("unavailable", restarted.deliveries(release)[0].status)
+        request_state = restarted.inspect()[0]["requests"][0]
+        self.assertEqual(1, request_state["delivered"])
+        self.assertEqual(1, request_state["unavailable"])
+        restarted.complete(release)
+        self.assertEqual([], restarted.inspect()[0]["requests"])
+
     def test_state_file_is_json_and_contains_no_worker_credential(self) -> None:
         release = request()
         self.store.enqueue(release)

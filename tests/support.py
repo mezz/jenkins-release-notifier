@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Callable
 
+from release_notifier.errors import UnavailableGitHubTargetError
 from release_notifier.github import ComparedRange, CompareCommit, Issue, PullRequest
 from release_notifier.model import DiscordNotification, ReleaseRequest
 
@@ -62,7 +63,7 @@ class FakeGitHub:
         self.ranges: dict[tuple[str, str], ComparedRange | Exception] = {}
         self.pulls: dict[str, tuple[PullRequest, ...]] = {}
         self.closing: dict[int, tuple[int, ...]] = {}
-        self.issues: dict[int, Issue] = {}
+        self.issues: dict[int, Issue | UnavailableGitHubTargetError] = {}
         self.comments: dict[int, list[str]] = defaultdict(list)
         self.create_attempts: list[int] = []
         self.create_hook: Callable[[int, str], None] | None = None
@@ -100,7 +101,10 @@ class FakeGitHub:
         return self.closing.get(number, ())
 
     def issue(self, repository: str, number: int) -> Issue:
-        return self.issues.get(number, Issue(number, frozenset(), False))
+        value = self.issues.get(number, Issue(number, frozenset(), False))
+        if isinstance(value, UnavailableGitHubTargetError):
+            raise value
+        return value
 
     def comment_bodies(self, repository: str, number: int) -> tuple[str, ...]:
         return tuple(self.comments[number])

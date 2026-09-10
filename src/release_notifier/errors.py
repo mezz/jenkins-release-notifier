@@ -32,6 +32,21 @@ class TransientGitHubError(GitHubError):
 class PermanentGitHubError(GitHubError):
     """GitHub rejected an operation that should not be retried unchanged."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        response_detail: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_detail = response_detail
+
+
+class UnavailableGitHubTargetError(PermanentGitHubError):
+    """A deleted or locked GitHub target cannot accept a release comment."""
+
 
 class AmbiguousWriteError(GitHubError):
     """A comment may have been created even though its response was lost."""

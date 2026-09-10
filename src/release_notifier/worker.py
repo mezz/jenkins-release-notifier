@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .discovery import DiscoveryClient, discover_targets
+from .errors import UnavailableGitHubTargetError
 from .model import CommentTarget, ReleaseRequest
 from .store import StateStore
 
@@ -23,6 +24,7 @@ class ProcessedRelease:
     channel: str
     version: str
     targets: int
+    unavailable_targets: int = 0
 
 
 @dataclass(frozen=True)
@@ -62,12 +64,19 @@ def process_channel(
                 if delivery.status != "pending":
                     continue
                 target = delivery.target
-                if marker_exists(client, request, target):
-                    store.mark_delivery(request, target, "marker_confirmed")
+                try:
+                    if marker_exists(client, request, target):
+                        store.mark_delivery(request, target, "marker_confirmed")
+                        continue
+                    client.create_comment(request.repository, target.number, target.body)
+                    store.mark_delivery(request, target, "created")
+                except UnavailableGitHubTargetError:
+                    store.mark_delivery(request, target, "unavailable")
                     continue
-                client.create_comment(request.repository, target.number, target.body)
-                store.mark_delivery(request, target, "created")
 
+            unavailable_targets = sum(
+                delivery.status == "unavailable" for delivery in store.deliveries(request)
+            )
             store.complete(request)
             completed.append(
                 ProcessedRelease(
@@ -76,6 +85,7 @@ def process_channel(
                     channel=request.channel,
                     version=request.version,
                     targets=len(targets),
+                    unavailable_targets=unavailable_targets,
                 )
             )
         except Exception as error:
