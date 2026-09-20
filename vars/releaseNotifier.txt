@@ -6,7 +6,9 @@ Required parameters:
 - channel: name that separates one release sequence from another
 - projectName: project name used in comments
 - version: the published version
-- baseCommit and headCommit: full 40-character IDs for the published range
+- baseCommit: full 40-character ID used to initialize a new channel; established
+  channels ignore it and continue from the worker's saved checkpoint
+- headCommit: full 40-character ID of the release just published
 - releaseLinks: list of maps with label and absolute HTTP(S) url
 
 Optional parameters are workerJob (default release-notifier-worker),

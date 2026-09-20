@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 - 2026-09-21
+
+- Uses each channel's saved checkpoint as the release base so successful
+  Jenkins builds that did not publish cannot cause later notifications to skip
+  or reject a release range.
+
 ## 0.2.1 - 2026-09-10
 
 - Skips deleted GitHub targets and targets locked against new comments so one

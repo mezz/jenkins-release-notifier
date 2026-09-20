@@ -44,7 +44,7 @@ pipeline {
         string(name: 'RELEASE_CHANNEL', defaultValue: '', description: 'Independent ordered release line')
         string(name: 'RELEASE_PROJECT_NAME', defaultValue: '', description: 'Project name used in comments')
         string(name: 'RELEASE_VERSION', defaultValue: '', description: 'Published version')
-        string(name: 'RELEASE_BASE_COMMIT', defaultValue: '', description: 'Previous published 40-character commit ID')
+        string(name: 'RELEASE_BASE_COMMIT', defaultValue: '', description: 'Initial 40-character commit ID used only to create a new channel')
         string(name: 'RELEASE_HEAD_COMMIT', defaultValue: '', description: 'Published 40-character commit ID')
         text(name: 'RELEASE_MESSAGE', defaultValue: '', description: 'Optional custom GitHub comment; release links are appended')
         text(name: 'RELEASE_LINK_LABELS', defaultValue: '', description: 'One public link label per line')

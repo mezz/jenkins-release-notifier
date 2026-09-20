@@ -37,7 +37,7 @@ class StateStoreTest(unittest.TestCase):
 
     def test_multiple_releases_keep_metadata_and_order_after_reload(self) -> None:
         first = request("1.0.0", "a" * 40, "b" * 40)
-        second = request("1.0.1", "b" * 40, "c" * 40)
+        second = request("1.0.1", "f" * 40, "c" * 40)
 
         self.assertTrue(self.store.enqueue(first))
         self.assertTrue(self.store.enqueue(second))
@@ -53,17 +53,24 @@ class StateStoreTest(unittest.TestCase):
         release = request()
         self.assertTrue(self.store.enqueue(release))
         self.assertFalse(self.store.enqueue(release))
+        self.assertFalse(self.store.enqueue(replace(release, base_commit="c" * 40)))
 
         with self.assertRaisesRegex(QueueConflictError, "different release data"):
-            self.store.enqueue(replace(release, base_commit="c" * 40))
+            self.store.enqueue(replace(release, project_name="Different project"))
 
-    def test_later_release_cannot_skip_a_commit_range(self) -> None:
-        self.store.enqueue(request("1.0.0", "a" * 40, "b" * 40))
+    def test_completed_checkpoint_overrides_submitted_base(self) -> None:
+        first = request("1.0.0", "a" * 40, "b" * 40)
+        self.store.enqueue(first)
+        self.store.set_targets(first, ())
+        self.store.complete(first)
 
-        with self.assertRaisesRegex(QueueConflictError, "expected base"):
-            self.store.enqueue(request("1.0.2", "c" * 40, "d" * 40))
+        self.assertTrue(
+            self.store.enqueue(request("1.0.1", "c" * 40, "d" * 40))
+        )
 
-        self.assertEqual(1, len(self.store.inspect()[0]["requests"]))
+        state = self.store.inspect()[0]
+        self.assertEqual("b" * 40, state["checkpoint"])
+        self.assertEqual("b" * 40, state["requests"][0]["baseCommit"])
 
     def test_checkpoint_advances_only_after_all_targets(self) -> None:
         release = request()

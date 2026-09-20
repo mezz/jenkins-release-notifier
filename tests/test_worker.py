@@ -161,6 +161,25 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(0, completed[0].targets)
         self.assertEqual([], self.store.inspect()[0]["requests"])
 
+    def test_discovery_uses_saved_checkpoint_instead_of_submitted_base(self) -> None:
+        first = request("1.0.0", "a" * 40, "b" * 40)
+        self.store.enqueue(first)
+        self.store.set_targets(first, ())
+        self.store.complete(first)
+
+        submitted = request("1.0.1", "c" * 40, "d" * 40)
+        self.store.enqueue(submitted)
+        queued = self.store.next_request(submitted.repository, submitted.channel)
+        self.assertIsNotNone(queued)
+        self.assertEqual("b" * 40, queued.request.base_commit)
+
+        github = FakeGitHub()
+        github.add_release(queued.request, fixed_issue=4499)
+        process_channel(self.store, github, submitted.repository, submitted.channel)
+
+        self.assertEqual(1, len(github.comments[4499]))
+        self.assertEqual("d" * 40, self.store.inspect()[0]["checkpoint"])
+
     def test_unrelated_channels_continue_when_one_fails(self) -> None:
         broken = request(repository="mezz/Broken", channel="main")
         healthy = request(

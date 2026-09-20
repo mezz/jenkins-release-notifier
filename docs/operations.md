@@ -17,6 +17,8 @@ queued for retry.
 If a project published successfully but did not submit its notification, run
 the project's notification step again with the same version, commits, and
 links. Submitting the same request again does not create duplicate comments.
+For an established channel, the worker starts the recovered release range at
+its saved checkpoint even if the resubmitted `baseCommit` is newer or older.
 
 Discord retries are at-least-once. Discord does not provide an idempotency key
 for webhook messages, so an ambiguous response can produce a duplicate. The

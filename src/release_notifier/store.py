@@ -9,7 +9,7 @@ import os
 import re
 import uuid
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -373,13 +373,17 @@ class StateStore:
         return state
 
     def enqueue(self, request: ReleaseRequest) -> bool:
-        """Queue a request; return False when it is already pending or just completed."""
+        """Queue a request using durable channel state as its release base."""
 
         for channel in self._channels:
             for item in channel.requests:
                 if item.request.request_key != request.request_key:
                     continue
-                if item.request.to_json() != request.to_json():
+                comparable_request = replace(
+                    request,
+                    base_commit=item.request.base_commit,
+                )
+                if item.request.to_json() != comparable_request.to_json():
                     raise QueueConflictError(
                         f"request key {request.request_key} already exists with "
                         "different release data"
@@ -403,11 +407,7 @@ class StateStore:
             if channel.requests
             else channel.checkpoint
         )
-        if expected_base != request.base_commit:
-            raise QueueConflictError(
-                f"release range does not continue channel {request.repository}/{request.channel}: "
-                f"expected base {expected_base}, got {request.base_commit}"
-            )
+        request = replace(request, base_commit=expected_base)
         channel.requests.append(_RequestState(request, None, None, None))
         self._save()
         return True

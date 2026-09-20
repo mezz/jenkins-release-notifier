@@ -1,4 +1,4 @@
-# Set up Jenkins Release Notifier 0.2.1
+# Set up Jenkins Release Notifier 0.2.2
 
 No global Jenkins library or administrator configuration is required. Create
 one worker job, then configure each project from its Jenkinsfile.
@@ -28,7 +28,7 @@ Create a **Pipeline** job named `release-notifier-worker`. Select
 | --- | --- |
 | SCM | Git |
 | Repository URL | `https://github.com/mezz/jenkins-release-notifier.git` |
-| Branch Specifier | `refs/tags/v0.2.1` |
+| Branch Specifier | `refs/tags/v0.2.2` |
 | Script Path | `Jenkinsfile` |
 
 Run the job once to initialize it. The selected agent must have Python 3.11 or
@@ -40,7 +40,7 @@ Load the library once before the `pipeline` block:
 
 ```groovy
 library(
-    identifier: 'jenkins-release-notifier@v0.2.1',
+    identifier: 'jenkins-release-notifier@v0.2.2',
     retriever: modernSCM([
         $class: 'GitSCMSource',
         remote: 'https://github.com/mezz/jenkins-release-notifier.git'
@@ -76,9 +76,12 @@ Change the project name, repository, version, commits, and download links. If
 the worker is in a Jenkins folder, use its full path, for example
 `/team/release-notifier-worker`.
 
-`baseCommit` is the full commit ID of the previous published release.
-`headCommit` is the full commit ID of the release just published. Use a
-different `channel` for each branch or release line that advances separately.
+`baseCommit` is the full commit ID before the first published release in a new
+channel. After initialization, the worker ignores this value and uses its saved
+checkpoint, so successful Jenkins builds that did not publish cannot skip a
+release range. `headCommit` is the full commit ID of the release just published.
+Use a different `channel` for each branch or release line that advances
+separately.
 
 `message` is optional Markdown used for every matching pull request and issue.
 Release links are appended automatically. Omit it to use the notifier's

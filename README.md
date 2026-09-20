@@ -3,9 +3,10 @@
 Posts GitHub comments for published releases and optional Discord summaries for
 Jenkins builds.
 
-Projects send the notifier a version, a commit range, and release links. The
-notifier finds the pull requests and fixed issues in that range and comments on
-them using the GitHub credential configured on the worker job.
+Projects send the notifier a version, a release commit, an initial base commit,
+and release links. The worker advances each established channel from its saved
+checkpoint, finds the pull requests and fixed issues in that range, and comments
+on them using the configured GitHub credential.
 
 Projects can also send Discord build summaries from their Jenkins `post`
 block. Discord messages use the same worker queue and retry schedule as GitHub
