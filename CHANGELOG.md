@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 - 2026-09-24
+
+- Filters Jenkins shared-library changes out of Discord project commit links.
+
 ## 0.3.0 - 2026-09-24
 
 - Replaces legacy Discord embeds with Components V2 containers, status icons,

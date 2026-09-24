@@ -1,5 +1,9 @@
 def scheduledBuilds = []
 def messages = []
+def shellCalls = []
+def projectCommit = '0123456789abcdef0123456789abcdef01234567'
+def libraryCommit = 'fedcba9876543210fedcba9876543210fedcba98'
+def headCommit = '1234567890abcdef1234567890abcdef12345678'
 def files = [
     'gradle.properties': '''
 githubUrl=https://github.com/example/ExampleMod
@@ -26,14 +30,26 @@ pipelineBinding.setVariable('env', [
 ])
 pipelineBinding.setVariable('currentBuild', [
     currentResult: 'SUCCESS',
-    changeSets: [[items: [[
-        commitId: '0123456789abcdef0123456789abcdef01234567',
-        msg: 'Fix @everyone notification formatting'
-    ]]]]
+    changeSets: [
+        [items: [[
+            commitId: libraryCommit,
+            msg: 'Update the notifier shared library'
+        ]]],
+        [items: [[
+            commitId: projectCommit,
+            msg: 'Fix @everyone notification formatting'
+        ]]]
+    ]
 ])
 pipelineBinding.setVariable('fileExists', { String fileName -> files.containsKey(fileName) })
 pipelineBinding.setVariable('readFile', { Map arguments -> files[arguments.file] })
-pipelineBinding.setVariable('sh', { Map arguments -> '' })
+pipelineBinding.setVariable('sh', { Map arguments ->
+    shellCalls << arguments
+    if (arguments.returnStatus) {
+        return arguments.script.contains(projectCommit) ? 0 : 128
+    }
+    return arguments.returnStdout ? "${headCommit}\tFallback head commit\n" : ''
+})
 pipelineBinding.setVariable('string', { Map value -> value })
 pipelineBinding.setVariable('text', { Map value -> value })
 pipelineBinding.setVariable('build', { Map value -> scheduledBuilds << value })
@@ -68,6 +84,9 @@ assert parameters.DISCORD_TITLE == 'team/ExampleMod/main #42'
 assert parameters.DISCORD_DESCRIPTION.contains('**Result:** SUCCESS')
 assert parameters.DISCORD_DESCRIPTION.contains('**Version:** 30.24.0.42')
 assert parameters.DISCORD_DESCRIPTION.contains('Fix @\u200Beveryone notification formatting')
+assert parameters.DISCORD_DESCRIPTION.contains(projectCommit)
+assert !parameters.DISCORD_DESCRIPTION.contains(libraryCommit)
+assert !parameters.DISCORD_DESCRIPTION.contains('Update the notifier shared library')
 assert parameters.DISCORD_LINK_LABELS == 'CurseForge (NeoForge)\nModrinth (Fabric)'
 assert parameters.DISCORD_LINK_URLS ==
     'https://www.curseforge.com/minecraft/mc-mods/example-mod/files/1234\n' +
@@ -85,6 +104,10 @@ assert parameters.DISCORD_LINK_LABELS == ''
 assert parameters.DISCORD_LINK_URLS == ''
 
 pipelineBinding.getVariable('env').SHOULD_PUBLISH = 'true'
+pipelineBinding.getVariable('currentBuild').changeSets = [[items: [[
+    commitId: libraryCommit,
+    msg: 'Update the notifier shared library'
+]]]]
 step.call([
     projectName: 'Example',
     repository: 'example/project',
@@ -94,8 +117,23 @@ step.call([
 assert scheduledBuilds.size() == 3
 parameters = scheduledBuilds[2].parameters.collectEntries { [(it.name): it.value] }
 assert parameters.DISCORD_DESCRIPTION.contains('**Version:** 1.2.3')
+assert !parameters.DISCORD_DESCRIPTION.contains('**Commits:**')
 assert parameters.DISCORD_LINK_LABELS == 'Download'
 assert parameters.DISCORD_LINK_URLS == 'https://example.invalid/download'
+assert shellCalls.count { it.returnStdout } == 0
+
+pipelineBinding.getVariable('currentBuild').changeSets = []
+step.call([
+    projectName: 'Example',
+    repository: 'example/project',
+    version: '1.2.4',
+    releaseLinks: []
+])
+assert scheduledBuilds.size() == 4
+parameters = scheduledBuilds[3].parameters.collectEntries { [(it.name): it.value] }
+assert parameters.DISCORD_DESCRIPTION.contains(headCommit)
+assert parameters.DISCORD_DESCRIPTION.contains('Fallback head commit')
+assert shellCalls.count { it.returnStdout } == 1
 
 def rejected = false
 try {
@@ -104,7 +142,7 @@ try {
     rejected = error.message.contains('unsupported build result')
 }
 assert rejected
-assert scheduledBuilds.size() == 3
+assert scheduledBuilds.size() == 4
 
 rejected = false
 try {
@@ -118,7 +156,7 @@ try {
     rejected = error.message.contains('credential parameters')
 }
 assert rejected
-assert scheduledBuilds.size() == 3
+assert scheduledBuilds.size() == 4
 assert messages.last().startsWith('Scheduled Discord notification')
 
 println 'DiscordNotifierStepTest passed'

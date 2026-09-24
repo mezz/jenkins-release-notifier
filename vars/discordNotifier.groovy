@@ -401,23 +401,47 @@ private String formatCommitLink(String githubUrl, String commitId, String messag
 }
 
 
+private boolean isWorkspaceCommit(String commitId) {
+    if (!(commitId ==~ /^[0-9a-fA-F]{40,64}$/)) {
+        return false
+    }
+    return sh(
+        script: "git cat-file -e '${commitId}^{commit}'",
+        returnStatus: true
+    ) == 0
+}
+
+
 private List<String> getCommitLinksFromChangeSets(String githubUrl, int maxCommits) {
-    def links = []
-    def totalCommits = 0
+    def commits = []
     for (def changeSet in currentBuild.changeSets) {
         for (def item in changeSet.items) {
             def commitId = item.commitId ?: ''
             if (!commitId) {
                 continue
             }
-            totalCommits++
-            if (links.size() < maxCommits) {
-                links.add(formatCommitLink(githubUrl, commitId, item.msg ?: ''))
-            }
+            commits.add([commitId: commitId, message: item.msg ?: ''])
         }
     }
-    if (totalCommits > maxCommits) {
-        links.add("- …and ${totalCommits - maxCommits} more")
+    if (!commits) {
+        return null
+    }
+
+    def workspaceCommits = []
+    for (def commit in commits) {
+        if (isWorkspaceCommit(commit.commitId)) {
+            workspaceCommits.add(commit)
+        }
+    }
+    def links = []
+    for (def commit in workspaceCommits) {
+        if (links.size() >= maxCommits) {
+            break
+        }
+        links.add(formatCommitLink(githubUrl, commit.commitId, commit.message))
+    }
+    if (workspaceCommits.size() > maxCommits) {
+        links.add("- …and ${workspaceCommits.size() - maxCommits} more")
     }
     return links
 }
@@ -446,7 +470,7 @@ private List<String> getCommitLinks(Map configuration) {
         return []
     }
     def links = getCommitLinksFromChangeSets(githubUrl, 10)
-    return links ?: getHeadCommitLink(githubUrl)
+    return links == null ? getHeadCommitLink(githubUrl) : links
 }
 
 
