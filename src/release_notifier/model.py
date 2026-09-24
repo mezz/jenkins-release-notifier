@@ -13,7 +13,9 @@ from .errors import UnsupportedSchemaError, ValidationError
 
 
 REQUEST_SCHEMA_VERSION = 1
-DISCORD_NOTIFICATION_SCHEMA_VERSION = 1
+DISCORD_NOTIFICATION_SCHEMA_VERSION = 2
+LEGACY_DISCORD_NOTIFICATION_SCHEMA_VERSION = 1
+MAX_DISCORD_ACTION_LINKS = 27
 COMMIT_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 REPOSITORY_PART_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$")
 SENSITIVE_URL_PARAMETER_NAMES = frozenset(
@@ -163,9 +165,13 @@ class DiscordNotification:
     footer: str
     link: str
     result: str
+    links: tuple[ReleaseLink, ...] = ()
 
     @classmethod
     def from_dict(cls, value: Any) -> DiscordNotification:
+        if not isinstance(value, Mapping):
+            raise ValidationError("Discord notification has invalid fields")
+        schema_version = value.get("schemaVersion")
         expected_fields = {
             "schemaVersion",
             "title",
@@ -174,28 +180,59 @@ class DiscordNotification:
             "link",
             "result",
         }
-        if not isinstance(value, Mapping) or set(value) != expected_fields:
-            raise ValidationError("Discord notification has invalid fields")
-        schema_version = value.get("schemaVersion")
-        if schema_version != DISCORD_NOTIFICATION_SCHEMA_VERSION:
+        if schema_version == DISCORD_NOTIFICATION_SCHEMA_VERSION:
+            expected_fields.add("links")
+        elif schema_version != LEGACY_DISCORD_NOTIFICATION_SCHEMA_VERSION:
             raise UnsupportedSchemaError(
                 f"unsupported Discord notification schema version: {schema_version!r}; "
-                f"expected {DISCORD_NOTIFICATION_SCHEMA_VERSION}"
+                f"expected {LEGACY_DISCORD_NOTIFICATION_SCHEMA_VERSION} or "
+                f"{DISCORD_NOTIFICATION_SCHEMA_VERSION}"
             )
+        if set(value) != expected_fields:
+            raise ValidationError("Discord notification has invalid fields")
         title = _plain_string(value.get("title"), "title", maximum=256)
+        description_limit = (
+            4000 if schema_version == DISCORD_NOTIFICATION_SCHEMA_VERSION else 4096
+        )
         description = _multiline_string(
-            value.get("description"), "description", maximum=4096
+            value.get("description"), "description", maximum=description_limit
         )
         footer = _plain_string(value.get("footer"), "footer", maximum=2048)
         link = _validated_url(value.get("link"), "link")
+        if schema_version == DISCORD_NOTIFICATION_SCHEMA_VERSION and len(link) > 512:
+            raise ValidationError("link must be at most 512 characters")
         result = _plain_string(value.get("result"), "result", maximum=32).upper()
         if result not in DISCORD_RESULTS:
             raise ValidationError(
                 f"result must be one of: {', '.join(sorted(DISCORD_RESULTS))}"
             )
         if len(title) + len(description) + len(footer) > 6000:
-            raise ValidationError("Discord embed text must be at most 6000 characters")
-        return cls(schema_version, title, description, footer, link, result)
+            raise ValidationError("Discord message text must be at most 6000 characters")
+        links: tuple[ReleaseLink, ...] = ()
+        if schema_version == DISCORD_NOTIFICATION_SCHEMA_VERSION:
+            links_value = value.get("links")
+            if not isinstance(links_value, list):
+                raise ValidationError("links must be an array")
+            links = tuple(
+                ReleaseLink.from_value(item, f"links[{index}]")
+                for index, item in enumerate(links_value)
+            )
+            if len(links) > MAX_DISCORD_ACTION_LINKS:
+                raise ValidationError(
+                    f"links must contain at most {MAX_DISCORD_ACTION_LINKS} items"
+                )
+            for index, action_link in enumerate(links):
+                if len(action_link.label) > 80:
+                    raise ValidationError(
+                        f"links[{index}].label must be at most 80 characters"
+                    )
+                if len(action_link.url) > 512:
+                    raise ValidationError(
+                        f"links[{index}].url must be at most 512 characters"
+                    )
+            if len({(item.label.casefold(), item.url) for item in links}) != len(links):
+                raise ValidationError("links must not contain duplicates")
+        return cls(schema_version, title, description, footer, link, result, links)
 
     @property
     def request_key(self) -> str:
@@ -203,7 +240,7 @@ class DiscordNotification:
         return hashlib.sha256(encoded).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        value: dict[str, Any] = {
             "schemaVersion": self.schema_version,
             "title": self.title,
             "description": self.description,
@@ -211,6 +248,9 @@ class DiscordNotification:
             "link": self.link,
             "result": self.result,
         }
+        if self.schema_version == DISCORD_NOTIFICATION_SCHEMA_VERSION:
+            value["links"] = [link.to_dict() for link in self.links]
+        return value
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))

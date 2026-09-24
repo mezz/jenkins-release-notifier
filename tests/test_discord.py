@@ -68,12 +68,41 @@ class DiscordClientTest(unittest.TestCase):
         self.assertEqual("123456789", message_id)
         request = opener.requests[0]
         self.assertEqual(
-            "https://discord.com/api/webhooks/123/token?wait=true",
+            "https://discord.com/api/webhooks/123/token?wait=true&with_components=true",
             request.full_url,
         )
         payload = json.loads(request.data)
         self.assertEqual({"parse": []}, payload["allowed_mentions"])
-        self.assertEqual("mezz/Example/main #42", payload["embeds"][0]["title"])
+        self.assertEqual(32768, payload["flags"])
+        self.assertNotIn("embeds", payload)
+        container = payload["components"][0]
+        self.assertEqual(17, container["type"])
+        self.assertEqual(0x2ECC71, container["accent_color"])
+        section = container["components"][0]
+        self.assertEqual("## ✅ mezz/Example/main #42", section["components"][0]["content"])
+        self.assertEqual(
+            {
+                "type": 2,
+                "style": 5,
+                "label": "Open build",
+                "url": "https://ci.example.invalid/job/42/",
+                "emoji": {"name": "🔧"},
+            },
+            section["accessory"],
+        )
+        action_row = container["components"][1]
+        self.assertEqual(1, action_row["type"])
+        self.assertEqual(
+            ["CurseForge (NeoForge)", "Modrinth (Fabric)"],
+            [button["label"] for button in action_row["components"]],
+        )
+        self.assertEqual(
+            [{"name": "🔥"}, {"name": "🟢"}],
+            [button["emoji"] for button in action_row["components"]],
+        )
+        self.assertEqual(
+            "-# Example Jenkins", container["components"][-1]["content"]
+        )
 
     def test_rate_limit_retries_using_server_delay(self) -> None:
         opener = QueueOpener(

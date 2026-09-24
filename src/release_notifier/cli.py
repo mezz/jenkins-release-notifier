@@ -13,7 +13,7 @@ from .discord import DiscordClient
 from .discord_worker import process_discord
 from .errors import NotifierError, ValidationError
 from .github import GitHubClient
-from .model import DiscordNotification, ReleaseRequest
+from .model import DISCORD_NOTIFICATION_SCHEMA_VERSION, DiscordNotification, ReleaseRequest
 from .store import StateStore
 from .worker import process_all
 
@@ -95,14 +95,24 @@ def _request_from_environment() -> ReleaseRequest:
 
 
 def _discord_notification_from_environment() -> DiscordNotification:
+    labels = _environment_lines("DISCORD_LINK_LABELS")
+    urls = _environment_lines("DISCORD_LINK_URLS")
+    if len(labels) != len(urls):
+        raise ValidationError(
+            "DISCORD_LINK_LABELS and DISCORD_LINK_URLS must have the same line count"
+        )
     return DiscordNotification.from_dict(
         {
-            "schemaVersion": 1,
+            "schemaVersion": DISCORD_NOTIFICATION_SCHEMA_VERSION,
             "title": _required_environment("DISCORD_TITLE"),
             "description": _required_environment("DISCORD_DESCRIPTION"),
             "footer": _required_environment("DISCORD_FOOTER"),
             "link": _required_environment("DISCORD_LINK"),
             "result": _required_environment("DISCORD_RESULT"),
+            "links": [
+                {"label": label, "url": url}
+                for label, url in zip(labels, urls, strict=True)
+            ],
         }
     )
 

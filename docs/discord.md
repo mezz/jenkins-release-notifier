@@ -8,7 +8,7 @@ Load the library once before the `pipeline` block:
 
 ```groovy
 library(
-    identifier: 'jenkins-release-notifier@v0.2.2',
+    identifier: 'jenkins-release-notifier@v0.3.0',
     retriever: modernSCM([
         $class: 'GitSCMSource',
         remote: 'https://github.com/mezz/jenkins-release-notifier.git'
@@ -32,9 +32,11 @@ post {
 }
 ```
 
-The message includes the result, branch, build number, version, commits, and
-release links that are available. Gradle mod projects automatically use values
-from `gradle.properties` and output from the Mod Publish Plugin.
+The Components V2 message includes the result, branch, build number, version,
+commits, and release links that are available. Its container color and status
+icon reflect the build result, and its buttons open the Jenkins build and each
+published download. Gradle mod projects automatically use values from
+`gradle.properties` and output from the Mod Publish Plugin.
 
 Gradle mod projects with `modName` and `githubUrl` in `gradle.properties` can
 omit the project metadata. Pass `workerJob` if the worker is in a Jenkins

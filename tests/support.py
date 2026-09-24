@@ -12,15 +12,30 @@ def discord_notification(
     title: str = "mezz/Example/main #42",
     *,
     result: str = "SUCCESS",
+    links: bool = True,
 ) -> DiscordNotification:
     return DiscordNotification.from_dict(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "title": title,
             "description": "**Result:** SUCCESS\n**Build:** #42",
             "footer": "Example Jenkins",
             "link": "https://ci.example.invalid/job/42/",
             "result": result,
+            "links": (
+                [
+                    {
+                        "label": "CurseForge (NeoForge)",
+                        "url": "https://example.invalid/curseforge",
+                    },
+                    {
+                        "label": "Modrinth (Fabric)",
+                        "url": "https://example.invalid/modrinth",
+                    },
+                ]
+                if links
+                else []
+            ),
         }
     )
 

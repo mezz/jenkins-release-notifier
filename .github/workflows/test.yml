@@ -30,4 +30,5 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install --yes groovy
       - run: groovy tests/jenkins/ReleaseNotifierStepTest.groovy
-      - run: groovyc -d build/groovy Jenkinsfile vars/releaseNotifier.groovy
+      - run: groovy tests/jenkins/DiscordNotifierStepTest.groovy
+      - run: groovyc -d build/groovy Jenkinsfile vars/releaseNotifier.groovy vars/discordNotifier.groovy

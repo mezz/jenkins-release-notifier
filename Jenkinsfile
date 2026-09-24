@@ -53,11 +53,13 @@ pipeline {
         text(name: 'RELEASE_MOD_LOADERS', defaultValue: '', description: 'Optional; one mod loader per line')
         string(name: 'RELEASE_ENHANCEMENT_LABELS_PRESENT', defaultValue: 'false', description: 'Whether enhancement labels were explicitly supplied')
         text(name: 'RELEASE_ENHANCEMENT_LABELS', defaultValue: '', description: 'Optional; one feature-request label per line')
-        string(name: 'DISCORD_TITLE', defaultValue: '', description: 'Discord embed title; empty for no new Discord notification')
-        text(name: 'DISCORD_DESCRIPTION', defaultValue: '', description: 'Discord embed description')
-        string(name: 'DISCORD_FOOTER', defaultValue: '', description: 'Discord embed footer')
+        string(name: 'DISCORD_TITLE', defaultValue: '', description: 'Discord component title; empty for no new Discord notification')
+        text(name: 'DISCORD_DESCRIPTION', defaultValue: '', description: 'Discord component description')
+        string(name: 'DISCORD_FOOTER', defaultValue: '', description: 'Discord component footer')
         string(name: 'DISCORD_LINK', defaultValue: '', description: 'Jenkins build URL')
         string(name: 'DISCORD_RESULT', defaultValue: '', description: 'Jenkins build result')
+        text(name: 'DISCORD_LINK_LABELS', defaultValue: '', description: 'One Discord action label per line')
+        text(name: 'DISCORD_LINK_URLS', defaultValue: '', description: 'One Discord action URL per line')
     }
 
     stages {

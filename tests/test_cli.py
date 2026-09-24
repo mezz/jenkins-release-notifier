@@ -45,6 +45,11 @@ class CliTest(unittest.TestCase):
                     "DISCORD_FOOTER": "Example Jenkins",
                     "DISCORD_LINK": "https://ci.example.invalid/job/example/12/",
                     "DISCORD_RESULT": "SUCCESS",
+                    "DISCORD_LINK_LABELS": "CurseForge\nModrinth",
+                    "DISCORD_LINK_URLS": (
+                        "https://example.invalid/curseforge\n"
+                        "https://example.invalid/modrinth"
+                    ),
                 }
                 with patch.dict(os.environ, discord_values, clear=False):
                     self.assertEqual(
@@ -92,6 +97,11 @@ class CliTest(unittest.TestCase):
             ][0]["notification"]
             self.assertEqual("Example #12", discord_value["title"])
             self.assertEqual("SUCCESS", discord_value["result"])
+            self.assertEqual(2, discord_value["schemaVersion"])
+            self.assertEqual(
+                ["CurseForge", "Modrinth"],
+                [link["label"] for link in discord_value["links"]],
+            )
 
 
 if __name__ == "__main__":

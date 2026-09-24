@@ -279,14 +279,6 @@ private List<Map<String, String>> getConfiguredReleaseLinks(Map configuration) {
 }
 
 
-private List<String> getConfiguredReleaseLinkLines(Map configuration) {
-    def links = getConfiguredReleaseLinks(configuration).collect { link ->
-        "[${sanitizeDiscordText(link.label)}](${link.url})"
-    }
-    return links ? ["**Downloads:** ${links.join(' | ')}"] : []
-}
-
-
 private List<Map<String, String>> getAutomaticReleaseLinkEntries(
     Map configuration,
     boolean includeFallback
@@ -374,29 +366,6 @@ private List<Map<String, String>> getAutomaticReleaseLinkEntries(
         }
     }
     return entries
-}
-
-
-private List<String> getAutomaticReleaseLinkLines(Map configuration, boolean includeFallback) {
-    def entries = getAutomaticReleaseLinkEntries(configuration, includeFallback)
-    def result = []
-    for (def platform in ['CurseForge', 'Modrinth']) {
-        def links = entries.findAll { it.platform == platform }.collect { entry ->
-            "[${entry.loader}](${entry.url})"
-        }
-        if (links) {
-            result.add("**${platform}:** ${links.join(' | ')}")
-        }
-    }
-    return result
-}
-
-
-private List<String> getReleaseLinkLines(Map configuration, boolean includeFallback) {
-    if (configuration.containsKey('releaseLinks')) {
-        return getConfiguredReleaseLinkLines(configuration)
-    }
-    return getAutomaticReleaseLinkLines(configuration, includeFallback)
 }
 
 
@@ -534,13 +503,28 @@ private void queueDiscordBuild(Map configuration) {
         descriptionLines.add("**Commits:**\n${commitLinks.join('\n')}")
     }
 
+    def releaseLinks = []
     if (isPublishSkipped(configuration)) {
         descriptionLines.add('**Publish:** skipped (no code changes)')
     } else {
-        for (def releaseLinkLine in getReleaseLinkLines(configuration, buildResult == 'SUCCESS')) {
-            if (releaseLinkLine) {
-                descriptionLines.add(releaseLinkLine)
-            }
+        releaseLinks = getReleaseLinks(configuration, buildResult == 'SUCCESS').collect { link ->
+            [label: truncateText(link.label, 80), url: link.url]
+        }
+        if (releaseLinks.size() > 27) {
+            throw new IllegalArgumentException(
+                'discordNotifier: at most 27 release links can be displayed'
+            )
+        }
+        if (releaseLinks.any { it.url.length() > 512 }) {
+            throw new IllegalArgumentException(
+                'discordNotifier: release link URLs must be at most 512 characters'
+            )
+        }
+        def releaseLinkKeys = releaseLinks.collect { "${it.label}\n${it.url}" }
+        if (releaseLinkKeys.toSet().size() != releaseLinkKeys.size()) {
+            throw new IllegalArgumentException(
+                'discordNotifier: release links must not contain duplicates'
+            )
         }
     }
 
@@ -552,15 +536,18 @@ private void queueDiscordBuild(Map configuration) {
     if (title.length() > 256) {
         throw new IllegalArgumentException('discordNotifier: generated title is too long')
     }
-    if (description.length() > 4096) {
+    if (description.length() > 4000) {
         throw new IllegalArgumentException('discordNotifier: generated description is too long')
     }
     if (normalizedFooter.length() > 2048 ||
         title.length() + description.length() + normalizedFooter.length() > 6000) {
-        throw new IllegalArgumentException('discordNotifier: generated embed is too long')
+        throw new IllegalArgumentException('discordNotifier: generated message is too long')
     }
-    if (!(env.BUILD_URL ==~ /^https?:\/\/[^\s]+$/)) {
-        throw new IllegalArgumentException('discordNotifier: BUILD_URL is not an HTTP or HTTPS URL')
+    def buildUrl = validatedPublicUrl(env.BUILD_URL, 'BUILD_URL')
+    if (buildUrl.length() > 512) {
+        throw new IllegalArgumentException(
+            'discordNotifier: BUILD_URL must be at most 512 characters'
+        )
     }
 
     def workerJob = configuration.containsKey('workerJob') ?
@@ -576,8 +563,16 @@ private void queueDiscordBuild(Map configuration) {
             string(name: 'DISCORD_TITLE', value: title),
             text(name: 'DISCORD_DESCRIPTION', value: description),
             string(name: 'DISCORD_FOOTER', value: normalizedFooter),
-            string(name: 'DISCORD_LINK', value: env.BUILD_URL),
-            string(name: 'DISCORD_RESULT', value: buildResult)
+            string(name: 'DISCORD_LINK', value: buildUrl),
+            string(name: 'DISCORD_RESULT', value: buildResult),
+            text(
+                name: 'DISCORD_LINK_LABELS',
+                value: releaseLinks.collect { it.label }.join('\n')
+            ),
+            text(
+                name: 'DISCORD_LINK_URLS',
+                value: releaseLinks.collect { it.url }.join('\n')
+            )
         ],
         wait: false,
         quietPeriod: 0

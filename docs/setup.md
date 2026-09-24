@@ -1,4 +1,4 @@
-# Set up Jenkins Release Notifier 0.2.2
+# Set up Jenkins Release Notifier 0.3.0
 
 No global Jenkins library or administrator configuration is required. Create
 one worker job, then configure each project from its Jenkinsfile.
@@ -28,7 +28,7 @@ Create a **Pipeline** job named `release-notifier-worker`. Select
 | --- | --- |
 | SCM | Git |
 | Repository URL | `https://github.com/mezz/jenkins-release-notifier.git` |
-| Branch Specifier | `refs/tags/v0.2.2` |
+| Branch Specifier | `refs/tags/v0.3.0` |
 | Script Path | `Jenkinsfile` |
 
 Run the job once to initialize it. The selected agent must have Python 3.11 or
@@ -40,7 +40,7 @@ Load the library once before the `pipeline` block:
 
 ```groovy
 library(
-    identifier: 'jenkins-release-notifier@v0.2.2',
+    identifier: 'jenkins-release-notifier@v0.3.0',
     retriever: modernSCM([
         $class: 'GitSCMSource',
         remote: 'https://github.com/mezz/jenkins-release-notifier.git'

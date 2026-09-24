@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 - 2026-09-24
+
+- Replaces legacy Discord embeds with Components V2 containers, status icons,
+  and link buttons for Jenkins builds and published downloads.
+- Preserves queued version 1 Discord notifications while new jobs submit the
+  structured version 2 notification format.
+
 ## 0.2.2 - 2026-09-21
 
 - Uses each channel's saved checkpoint as the release base so successful

@@ -9,8 +9,9 @@ checkpoint, finds the pull requests and fixed issues in that range, and comments
 on them using the configured GitHub credential.
 
 Projects can also send Discord build summaries from their Jenkins `post`
-block. Discord messages use the same worker queue and retry schedule as GitHub
-comments.
+block. Discord messages use Components V2 with result styling and direct build
+and download buttons, and use the same worker queue and retry schedule as
+GitHub comments.
 
 ## Documentation
 

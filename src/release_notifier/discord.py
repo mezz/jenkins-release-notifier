@@ -32,6 +32,21 @@ RESULT_COLORS = {
     "ABORTED": 0x95A5A6,
     "NOT_BUILT": 0x95A5A6,
 }
+RESULT_ICONS = {
+    "SUCCESS": "✅",
+    "UNSTABLE": "⚠️",
+    "FAILURE": "❌",
+    "ABORTED": "⏹️",
+    "NOT_BUILT": "⏭️",
+}
+IS_COMPONENTS_V2 = 1 << 15
+ACTION_ROW = 1
+BUTTON = 2
+SECTION = 9
+TEXT_DISPLAY = 10
+SEPARATOR = 14
+CONTAINER = 17
+LINK_BUTTON_STYLE = 5
 
 
 class DiscordClient:
@@ -61,7 +76,13 @@ class DiscordClient:
         ):
             raise ValidationError("Discord webhook credential is not a valid Discord webhook URL")
         self._webhook_url = urllib.parse.urlunsplit(
-            (parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "wait=true", "")
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path.rstrip("/"),
+                "wait=true&with_components=true",
+                "",
+            )
         )
         self.retry_delays = retry_delays
         self.timeout_seconds = timeout_seconds
@@ -95,16 +116,66 @@ class DiscordClient:
         return min(max(fallback, 0.0), self.max_server_delay)
 
     @staticmethod
-    def _payload(notification: DiscordNotification) -> dict[str, Any]:
+    def _link_icon(label: str) -> str:
+        normalized = label.casefold()
+        if "curseforge" in normalized:
+            return "🔥"
+        if "modrinth" in normalized:
+            return "🟢"
+        if "github" in normalized:
+            return "🐙"
+        if "maven" in normalized:
+            return "📦"
+        if "download" in normalized:
+            return "⬇️"
+        return "🔗"
+
+    @staticmethod
+    def _link_button(label: str, url: str, emoji: str) -> dict[str, Any]:
+        return {
+            "type": BUTTON,
+            "style": LINK_BUTTON_STYLE,
+            "label": label,
+            "url": url,
+            "emoji": {"name": emoji},
+        }
+
+    @classmethod
+    def _payload(cls, notification: DiscordNotification) -> dict[str, Any]:
+        section = {
+            "type": SECTION,
+            "components": [
+                {
+                    "type": TEXT_DISPLAY,
+                    "content": f"## {RESULT_ICONS[notification.result]} {notification.title}",
+                },
+                {"type": TEXT_DISPLAY, "content": notification.description},
+            ],
+            "accessory": cls._link_button("Open build", notification.link, "🔧"),
+        }
+        container_components: list[dict[str, Any]] = [section]
+        buttons = [
+            cls._link_button(link.label, link.url, cls._link_icon(link.label))
+            for link in notification.links
+        ]
+        for index in range(0, len(buttons), 5):
+            container_components.append(
+                {"type": ACTION_ROW, "components": buttons[index : index + 5]}
+            )
+        container_components.extend(
+            [
+                {"type": SEPARATOR, "divider": True, "spacing": 1},
+                {"type": TEXT_DISPLAY, "content": f"-# {notification.footer}"},
+            ]
+        )
         return {
             "allowed_mentions": {"parse": []},
-            "embeds": [
+            "flags": IS_COMPONENTS_V2,
+            "components": [
                 {
-                    "color": RESULT_COLORS[notification.result],
-                    "description": notification.description,
-                    "footer": {"text": notification.footer},
-                    "title": notification.title,
-                    "url": notification.link,
+                    "type": CONTAINER,
+                    "accent_color": RESULT_COLORS[notification.result],
+                    "components": container_components,
                 }
             ],
         }

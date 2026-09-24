@@ -100,15 +100,36 @@ class DiscordNotificationTest(unittest.TestCase):
         self.assertEqual(notification, restored)
         self.assertEqual(notification.request_key, restored.request_key)
 
-    def test_rejects_invalid_result_and_oversized_embed(self) -> None:
+    def test_legacy_notification_round_trips_without_action_links(self) -> None:
+        value = discord_notification(links=False).to_dict()
+        value["schemaVersion"] = 1
+        value.pop("links")
+
+        notification = DiscordNotification.from_dict(value)
+
+        self.assertEqual((), notification.links)
+        self.assertEqual(value, notification.to_dict())
+
+    def test_rejects_invalid_result_and_oversized_message(self) -> None:
         value = discord_notification().to_dict()
         value["result"] = "UNKNOWN"
         with self.assertRaisesRegex(ValidationError, "result must be one of"):
             DiscordNotification.from_dict(value)
 
         value = discord_notification().to_dict()
-        value["description"] = "x" * 4097
-        with self.assertRaisesRegex(ValidationError, "at most 4096"):
+        value["description"] = "x" * 4001
+        with self.assertRaisesRegex(ValidationError, "at most 4000"):
+            DiscordNotification.from_dict(value)
+
+    def test_rejects_action_links_that_discord_cannot_render(self) -> None:
+        value = discord_notification().to_dict()
+        value["links"][0]["label"] = "x" * 81
+        with self.assertRaisesRegex(ValidationError, "at most 80"):
+            DiscordNotification.from_dict(value)
+
+        value = discord_notification().to_dict()
+        value["links"] = value["links"] * 14
+        with self.assertRaisesRegex(ValidationError, "at most 27"):
             DiscordNotification.from_dict(value)
 
 

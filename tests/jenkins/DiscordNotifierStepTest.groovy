@@ -68,8 +68,10 @@ assert parameters.DISCORD_TITLE == 'team/ExampleMod/main #42'
 assert parameters.DISCORD_DESCRIPTION.contains('**Result:** SUCCESS')
 assert parameters.DISCORD_DESCRIPTION.contains('**Version:** 30.24.0.42')
 assert parameters.DISCORD_DESCRIPTION.contains('Fix @\u200Beveryone notification formatting')
-assert parameters.DISCORD_DESCRIPTION.contains('https://www.curseforge.com/minecraft/mc-mods/example-mod/files/1234')
-assert parameters.DISCORD_DESCRIPTION.contains('https://modrinth.com/mod/example123/version/abcd')
+assert parameters.DISCORD_LINK_LABELS == 'CurseForge (NeoForge)\nModrinth (Fabric)'
+assert parameters.DISCORD_LINK_URLS ==
+    'https://www.curseforge.com/minecraft/mc-mods/example-mod/files/1234\n' +
+    'https://modrinth.com/mod/example123/version/abcd'
 
 pipelineBinding.getVariable('env').SHOULD_PUBLISH = 'false'
 step.call([
@@ -79,7 +81,8 @@ step.call([
 assert scheduledBuilds.size() == 2
 parameters = scheduledBuilds[1].parameters.collectEntries { [(it.name): it.value] }
 assert parameters.DISCORD_DESCRIPTION.contains('**Publish:** skipped (no code changes)')
-assert !parameters.DISCORD_DESCRIPTION.contains('**Downloads:**')
+assert parameters.DISCORD_LINK_LABELS == ''
+assert parameters.DISCORD_LINK_URLS == ''
 
 pipelineBinding.getVariable('env').SHOULD_PUBLISH = 'true'
 step.call([
@@ -91,9 +94,8 @@ step.call([
 assert scheduledBuilds.size() == 3
 parameters = scheduledBuilds[2].parameters.collectEntries { [(it.name): it.value] }
 assert parameters.DISCORD_DESCRIPTION.contains('**Version:** 1.2.3')
-assert parameters.DISCORD_DESCRIPTION.contains(
-    '**Downloads:** [Download](https://example.invalid/download)'
-)
+assert parameters.DISCORD_LINK_LABELS == 'Download'
+assert parameters.DISCORD_LINK_URLS == 'https://example.invalid/download'
 
 def rejected = false
 try {

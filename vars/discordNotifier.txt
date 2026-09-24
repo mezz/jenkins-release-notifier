@@ -1,6 +1,6 @@
-Queues the current Jenkins build result for delivery to Discord. The worker
-holds the webhook credential and retries messages that Discord has not
-confirmed.
+Queues the current Jenkins build result for delivery to a Discord Components V2
+message with result styling and build/download buttons. The worker holds the
+webhook credential and retries messages that Discord has not confirmed.
 
 workerJob selects the release-notifier worker. The optional projectName is used
 in the footer. repository or githubUrl enables commit links. version and
